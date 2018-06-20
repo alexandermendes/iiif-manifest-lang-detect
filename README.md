@@ -8,7 +8,7 @@ feed in alternative inputs (see below).
 
 ## Usage
 
-```
+```bash
 # install dependencies
 pip install -r requirements.txt
 

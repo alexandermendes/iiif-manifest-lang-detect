@@ -10,7 +10,7 @@ from langdetect import detect_langs, DetectorFactory
 from langdetect.lang_detect_exception import LangDetectException
 
 
-N_THREADS = 10
+N_THREADS = 5
 THRESHOLD = 20
 CONFIDENCE = 95
 

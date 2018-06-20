@@ -78,7 +78,7 @@ def convert_lang_code(iso639_1_code):
 
 def queue_read_tasks(q, df, header):
     """Queue tasks as manifest URI with related OCR URIs."""
-    index = df.index.tolist()[:5]
+    index = df.index.tolist()
     for i in index:
         row = df.loc[i].to_dict()
         if row.get('lang') and row.get('lang') != 'nan':

@@ -1,21 +1,35 @@
 #-*- coding: utf8 -*-
-
+import csv
 import pandas
 import requests
+import pycountry
 from Queue import Queue
 from threading import Thread
+from random import shuffle
 from langdetect import detect_langs, DetectorFactory
 from langdetect.lang_detect_exception import LangDetectException
 
 
-QUEUE = Queue()
+N_THREADS = 10
+THRESHOLD = 20
+CONFIDENCE = 95
 
 
-def load_dataframe(path):
+def load_dataframe(path, header):
     """Load a CSV file into a dataframe."""
-    df = pandas.read_csv(path)
-    if 'Manifest-URI' not in df:
+    df = pandas.read_csv(path, dtype=str)
+    if header not in df:
         raise ValueError('Manifest-URI column not in {}'.format(path))
+
+    # Drop rows with no manifest URI
+    df.dropna(subset=[header], inplace=True)
+
+    # Set index and drop duplicates
+    n_dupes = len(df[df.duplicated(subset=header, keep=False)])
+    if n_dupes:
+        print('WARNING: {} duplicate manifest URIs dropped'.format(n_dupes))
+        df.drop_duplicates(subset=header, inplace=True)
+    df.set_index(header, inplace=True, verify_integrity=True, drop=False)
     return df
 
 
@@ -34,7 +48,9 @@ def get_ocr_uris(manifest):
 
 
 def check_ocr(ocr_uris):
+    """Detect languages in OCR data for a set of URIs."""
     languages = {}
+    shuffle(ocr_uris)
     for uri in ocr_uris:
         r = requests.get(uri)
         try:
@@ -42,51 +58,87 @@ def check_ocr(ocr_uris):
         except (IndexError, LangDetectException):
             continue
 
-        if top.prob > 0.95:
+        if top.prob >= CONFIDENCE / float(100):
             count = languages.get(top.lang, 0)
             count += 1
+            if (100 * float(count)) / float(len(ocr_uris)) > THRESHOLD:
+                return top.lang
             languages[top.lang] = count
-    return languages
+
+    return max(languages, key=languages.get) if languages else None
 
 
-def queue_tasks(df, n_threads):
+def convert_lang_code(iso639_1_code):
+    """Convert from two character to three character language codes."""
+    try:
+        return pycountry.languages.get(alpha_2=iso639_1_code).alpha_3
+    except Exception:
+        return None
+
+
+def queue_read_tasks(q, df, header):
     """Queue tasks as manifest URI with related OCR URIs."""
-    manifest_uris = df['Manifest-URI'].tolist()
-    for manifest_uri in manifest_uris[:1]:
-        r = requests.get(manifest_uri)
+    index = df.index.tolist()[:5]
+    for i in index:
+        row = df.loc[i].to_dict()
+        if row.get('lang') and row.get('lang') != 'nan':
+            continue
+
+        r = requests.get(row[header])
         manifest = r.json()
         ocr_uris = get_ocr_uris(manifest)
-        job = {
-            'manifest_uri': manifest_uri,
-            'ocr_uris': ocr_uris
-        }
-        QUEUE.put(job)
+        row['ocr_uris'] = ocr_uris
+        q.put(row)
 
 
-def worker():
+def input_worker(in_queue, out_queue):
     """Check languages for items in the queue and persist."""
     while True:
-        task = QUEUE.get()
+        task = in_queue.get()
         ocr_uris = task['ocr_uris']
-        langs = check_ocr(ocr_uris)
-        print langs
-        QUEUE.task_done()
+        lang_code = check_ocr(ocr_uris)
+        task['lang'] = convert_lang_code(lang_code)
+        del task['ocr_uris']
+        out_queue.put(task)
+        in_queue.task_done()
 
 
-def start_workers(n_threads):
-    for i in range(n_threads):
-        t = Thread(target=worker)
+def output_worker(out_queue, df, header):
+    """Update the CSV file with language codes."""
+    processed = 0
+    while True:
+        task = out_queue.get()
+        manifest_uri = task[header]
+        df.at[manifest_uri, 'lang'] = task['lang']
+        processed += 1
+        if processed % 100 == 0 or out_queue.qsize() < 10:
+            print('{} rows updated'.format(processed))
+            df.to_csv('./data/bl-gbooks.csv', index=False)
+        out_queue.task_done()
+
+
+def start_workers(in_queue, out_queue, df, header):
+    """Start workers."""
+    for _ in range(N_THREADS):
+        t = Thread(target=input_worker, args=(in_queue, out_queue,))
         t.daemon = True
         t.start()
+
+    t = Thread(target=output_worker, args=(out_queue, df, header,))
+    t.daemon = True
+    t.start()
 
 
 def run():
     DetectorFactory.seed = 0
-    df = load_dataframe('./data/bl-gbooks.csv')
-    n_threads = 3
-    start_workers(n_threads)
-    queue_tasks(df, n_threads)
-    QUEUE.join()
+    header = 'Manifest-URI'
+    df = load_dataframe('./data/bl-gbooks.csv', header)
+    in_queue = Queue()
+    out_queue = Queue()
+    start_workers(in_queue, out_queue, df, header)
+    queue_read_tasks(in_queue, df, header)
+    in_queue.join()
+    out_queue.join()
 
 
 if __name__ == '__main__':

@@ -11,7 +11,7 @@ from langdetect import detect_langs, DetectorFactory
 from langdetect.lang_detect_exception import LangDetectException
 
 
-N_THREADS = 5
+N_THREADS = 4
 THRESHOLD = 20
 CONFIDENCE = 95
 
@@ -86,7 +86,11 @@ def queue_read_tasks(q, df, header):
             continue
 
         r = requests.get(row[header])
-        manifest = r.json()
+        try:
+            manifest = r.json()
+        except ValueError:
+            print('Invalid manifest: {}'.format(row[header]))
+            continue
         ocr_uris = get_ocr_uris(manifest)
         row['ocr_uris'] = ocr_uris
         q.put(row)
@@ -113,8 +117,7 @@ def output_worker(out_queue, df, header, csv_path, count):
         manifest_uri = task[header]
         df.at[manifest_uri, 'lang'] = task['lang']
         processed += 1
-        if processed % 100 == 0 or out_queue.qsize() < 10:
-            print('{0}/{1} rows processed'.format(processed, total))
+        if processed % 5 == 0 or out_queue.qsize() < 10:
             df.to_csv(csv_path, index=False)
         out_queue.task_done()
 
@@ -136,7 +139,7 @@ def run(csv_path):
     DetectorFactory.seed = 0
     header = 'Manifest-URI'
     df = load_dataframe(csv_path, header)
-    count = df['lang'].count()
+    count = df['lang'].count() if 'lang' in df else 0
     total = df[header].count()
     print('{0}/{1} rows processed'.format(count, total))
     in_queue = Queue()

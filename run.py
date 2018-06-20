@@ -1,36 +1,37 @@
 #-*- coding: utf8 -*-
+import time
 import sys
 import csv
 import pandas
 import requests
 import pycountry
-from Queue import Queue
-from threading import Thread
 from random import shuffle
 from langdetect import detect_langs, DetectorFactory
 from langdetect.lang_detect_exception import LangDetectException
+from tornado import ioloop, httpclient
+from tornado.gen import multi
 
 
-N_THREADS = 4
 THRESHOLD = 20
 CONFIDENCE = 95
+HEADER = 'Manifest-URI'
 
 
-def load_dataframe(path, header):
+def load_dataframe(path):
     """Load a CSV file into a dataframe."""
     df = pandas.read_csv(path, dtype=str)
-    if header not in df:
+    if HEADER not in df:
         raise ValueError('Manifest-URI column not in {}'.format(path))
 
     # Drop rows with no manifest URI
-    df.dropna(subset=[header], inplace=True)
+    df.dropna(subset=[HEADER], inplace=True)
 
     # Set index and drop duplicates
-    n_dupes = len(df[df.duplicated(subset=header, keep=False)])
+    n_dupes = len(df[df.duplicated(subset=HEADER, keep=False)])
     if n_dupes:
         print('WARNING: {} duplicate manifest URIs dropped'.format(n_dupes))
-        df.drop_duplicates(subset=header, inplace=True)
-    df.set_index(header, inplace=True, verify_integrity=True, drop=False)
+        df.drop_duplicates(subset=HEADER, inplace=True)
+    df.set_index(HEADER, inplace=True, verify_integrity=True, drop=False)
     return df
 
 
@@ -48,25 +49,43 @@ def get_ocr_uris(manifest):
     return uris
 
 
-def check_ocr(ocr_uris):
-    """Detect languages in OCR data for a set of URIs."""
-    languages = {}
+def detect_language(responses, total):
+    """Detect language from OCR text."""
+    text = ' '.join([str(r.body) for r in responses])
+    try:
+        langs = detect_langs(text)
+    except LangDetectException:
+        return None
+
+    if not langs:
+        return None
+
+    top = langs[0]
+    code = convert_lang_code(top.lang)
+    if top.prob >= CONFIDENCE / float(100):
+        return convert_lang_code(top.lang)
+
+
+def get_chunks(seq, size):
+    """Return a list as chunks."""
+    return (seq[pos:pos + size] for pos in range(0, len(seq), size))
+
+
+async def check_ocr(ocr_uris, http_client):
+    """Detect languages from OCR data.
+
+    Shuffle the OCR URIs into a random order then batch by the number of
+    pages required to pass the THRESHOLD.
+    """
     shuffle(ocr_uris)
-    for uri in ocr_uris:
-        r = requests.get(uri)
-        try:
-            top = detect_langs(r.text)[0]
-        except (IndexError, LangDetectException):
-            continue
-
-        if top.prob >= CONFIDENCE / float(100):
-            count = languages.get(top.lang, 0)
-            count += 1
-            if (100 * float(count)) / float(len(ocr_uris)) > THRESHOLD:
-                return top.lang
-            languages[top.lang] = count
-
-    return max(languages, key=languages.get) if languages else None
+    total = len(ocr_uris)
+    batch_size = int((float(THRESHOLD) / 100) * total)
+    responses = []
+    for group in get_chunks(ocr_uris, batch_size):
+        responses += await multi([http_client.fetch(uri) for uri in group])
+        code = detect_language(responses, total)
+        if code:
+            return code
 
 
 def convert_lang_code(iso639_1_code):
@@ -77,81 +96,71 @@ def convert_lang_code(iso639_1_code):
         return None
 
 
-def queue_read_tasks(q, df, header):
-    """Queue tasks as manifest URI with related OCR URIs."""
-    index = df.index.tolist()
+def generate_tasks(df):
+    """Generate tasks as manifest URI with related OCR URIs."""
+    index = df.index.tolist()[:10]
     for i in index:
         row = df.loc[i].to_dict()
+        manifest_uri = row[HEADER]
         if row.get('lang') and row.get('lang') == 'nan':
             continue
-
-        r = requests.get(row[header])
+        r = requests.get(manifest_uri)
         try:
             manifest = r.json()
         except ValueError:
-            print('Invalid manifest: {}'.format(row[header]))
+            print('Invalid manifest: {}'.format(manifest_uri))
             continue
         ocr_uris = get_ocr_uris(manifest)
-        row['ocr_uris'] = ocr_uris
-        q.put(row)
+        yield manifest_uri, ocr_uris
 
 
-def input_worker(in_queue, out_queue):
+async def process(manifest_uri, ocr_uris, df, http_client):
     """Check languages for items in the queue and persist."""
-    while True:
-        task = in_queue.get()
-        ocr_uris = task['ocr_uris']
-        lang_code = check_ocr(ocr_uris)
-        task['lang'] = convert_lang_code(lang_code)
-        del task['ocr_uris']
-        out_queue.put(task)
-        in_queue.task_done()
+    lang_code = await check_ocr(ocr_uris, http_client)
+    update_dataframe(manifest_uri, lang_code, df)
 
 
-def output_worker(out_queue, df, header, csv_path, count):
-    """Update the CSV file with language codes."""
-    processed = count
-    total = df[header].count()
-    while True:
-        task = out_queue.get()
-        manifest_uri = task[header]
-        df.at[manifest_uri, 'lang'] = task['lang']
-        processed += 1
-        if processed % 5 == 0 or out_queue.qsize() < 10:
-            df.to_csv(csv_path, index=False)
-        out_queue.task_done()
+def update_dataframe(manifest_uri, lang_code, df):
+    """Update the dataframe."""
+    df.at[manifest_uri, 'lang'] = lang_code
 
 
-def start_workers(in_queue, out_queue, df, header, csv_path, count):
-    """Start workers."""
-    for _ in range(N_THREADS - 1):
-        t = Thread(target=input_worker, args=(in_queue, out_queue,))
-        t.daemon = True
-        t.start()
-
-    t = Thread(target=output_worker,
-               args=(out_queue, df, header, csv_path, count, ))
-    t.daemon = True
-    t.start()
-
-
-def run(csv_path):
-    DetectorFactory.seed = 0
-    header = 'Manifest-URI'
-    df = load_dataframe(csv_path, header)
+def print_count(df):
+    """Count the number of language codes detected."""
     count = df['lang'].count() if 'lang' in df else 0
-    total = df[header].count()
+    total = df[HEADER].count()
     print('{0}/{1} rows processed'.format(count, total))
-    in_queue = Queue()
-    out_queue = Queue()
-    start_workers(in_queue, out_queue, df, header, csv_path, count)
-    queue_read_tasks(in_queue, df, header)
-    in_queue.join()
-    out_queue.join()
 
+
+def get_csv_path():
+    """Get the input CSV path."""
+    path = './data/bl-gbooks.csv'
+    if len(sys.argv) > 2:
+        path = sys.argv[1]
+    return path
+
+
+def main():
+    """Run the script."""
+    csv_path = get_csv_path()
+    df = load_dataframe(csv_path)
+    count = 0
+
+    start_time = time.time()
+    http_client = httpclient.AsyncHTTPClient()
+    DetectorFactory.seed = 0
+    print_count(df)
+    task_gen = generate_tasks(df)
+    for manifest_uri, ocr_uris in task_gen:
+        process(manifest_uri, ocr_uris, df, http_client)
+        count += 1
+        if count and count % 100 == 0:
+            df.to_csv(csv_path, index=False)
+
+    df.to_csv(csv_path, index=False)
+
+    print("--- %s seconds ---" % (time.time() - start_time))
 
 if __name__ == '__main__':
-    try:
-        run(sys.argv[1])
-    except IndexError as e:
-        run('./data/bl-gbooks.csv')
+    io_loop = ioloop.IOLoop.current()
+    io_loop.run_sync(main)

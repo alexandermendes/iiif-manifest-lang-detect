@@ -82,7 +82,7 @@ def queue_read_tasks(q, df, header):
     index = df.index.tolist()
     for i in index:
         row = df.loc[i].to_dict()
-        if row.get('lang') and row.get('lang') != 'nan':
+        if row.get('lang') and row.get('lang') == 'nan':
             continue
 
         r = requests.get(row[header])
@@ -104,28 +104,30 @@ def input_worker(in_queue, out_queue):
         in_queue.task_done()
 
 
-def output_worker(out_queue, df, header, csv_path):
+def output_worker(out_queue, df, header, csv_path, count):
     """Update the CSV file with language codes."""
-    processed = 0
+    processed = count
+    total = df[header].count()
     while True:
         task = out_queue.get()
         manifest_uri = task[header]
         df.at[manifest_uri, 'lang'] = task['lang']
         processed += 1
         if processed % 100 == 0 or out_queue.qsize() < 10:
-            print('{} rows updated'.format(processed))
+            print('{0}/{1} rows processed'.format(processed, total))
             df.to_csv(csv_path, index=False)
         out_queue.task_done()
 
 
-def start_workers(in_queue, out_queue, df, header, csv_path):
+def start_workers(in_queue, out_queue, df, header, csv_path, count):
     """Start workers."""
-    for _ in range(N_THREADS):
+    for _ in range(N_THREADS - 1):
         t = Thread(target=input_worker, args=(in_queue, out_queue,))
         t.daemon = True
         t.start()
 
-    t = Thread(target=output_worker, args=(out_queue, df, header, csv_path, ))
+    t = Thread(target=output_worker,
+               args=(out_queue, df, header, csv_path, count, ))
     t.daemon = True
     t.start()
 
@@ -134,9 +136,12 @@ def run(csv_path):
     DetectorFactory.seed = 0
     header = 'Manifest-URI'
     df = load_dataframe(csv_path, header)
+    count = df['lang'].count()
+    total = df[header].count()
+    print('{0}/{1} rows processed'.format(count, total))
     in_queue = Queue()
     out_queue = Queue()
-    start_workers(in_queue, out_queue, df, header, csv_path)
+    start_workers(in_queue, out_queue, df, header, csv_path, count)
     queue_read_tasks(in_queue, df, header)
     in_queue.join()
     out_queue.join()

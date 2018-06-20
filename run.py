@@ -13,7 +13,6 @@ QUEUE = Queue()
 
 def load_dataframe(path):
     """Load a CSV file into a dataframe."""
-    print('Loading dataframe...')
     df = pandas.read_csv(path)
     if 'Manifest-URI' not in df:
         raise ValueError('Manifest-URI column not in {}'.format(path))
@@ -50,10 +49,10 @@ def check_ocr(ocr_uris):
     return languages
 
 
-def queue_tasks(df):
+def queue_tasks(df, n_threads):
     """Queue tasks as manifest URI with related OCR URIs."""
     manifest_uris = df['Manifest-URI'].tolist()
-    for manifest_uri in manifest_uris[:3]:
+    for manifest_uri in manifest_uris[:1]:
         r = requests.get(manifest_uri)
         manifest = r.json()
         ocr_uris = get_ocr_uris(manifest)
@@ -68,12 +67,10 @@ def worker():
     """Check languages for items in the queue and persist."""
     while True:
         task = QUEUE.get()
-        if not task:
-            break
-
         ocr_uris = task['ocr_uris']
         langs = check_ocr(ocr_uris)
         print langs
+        QUEUE.task_done()
 
 
 def start_workers(n_threads):
@@ -88,7 +85,7 @@ def run():
     df = load_dataframe('./data/bl-gbooks.csv')
     n_threads = 3
     start_workers(n_threads)
-    queue_tasks(df)
+    queue_tasks(df, n_threads)
     QUEUE.join()
 
 

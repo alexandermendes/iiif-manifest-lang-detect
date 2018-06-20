@@ -1,4 +1,5 @@
 #-*- coding: utf8 -*-
+import sys
 import csv
 import pandas
 import requests
@@ -103,7 +104,7 @@ def input_worker(in_queue, out_queue):
         in_queue.task_done()
 
 
-def output_worker(out_queue, df, header):
+def output_worker(out_queue, df, header, csv_path):
     """Update the CSV file with language codes."""
     processed = 0
     while True:
@@ -113,33 +114,36 @@ def output_worker(out_queue, df, header):
         processed += 1
         if processed % 100 == 0 or out_queue.qsize() < 10:
             print('{} rows updated'.format(processed))
-            df.to_csv('./data/bl-gbooks.csv', index=False)
+            df.to_csv(csv_path, index=False)
         out_queue.task_done()
 
 
-def start_workers(in_queue, out_queue, df, header):
+def start_workers(in_queue, out_queue, df, header, csv_path):
     """Start workers."""
     for _ in range(N_THREADS):
         t = Thread(target=input_worker, args=(in_queue, out_queue,))
         t.daemon = True
         t.start()
 
-    t = Thread(target=output_worker, args=(out_queue, df, header,))
+    t = Thread(target=output_worker, args=(out_queue, df, header, csv_path, ))
     t.daemon = True
     t.start()
 
 
-def run():
+def run(csv_path):
     DetectorFactory.seed = 0
     header = 'Manifest-URI'
-    df = load_dataframe('./data/bl-gbooks.csv', header)
+    df = load_dataframe(csv_path, header)
     in_queue = Queue()
     out_queue = Queue()
-    start_workers(in_queue, out_queue, df, header)
+    start_workers(in_queue, out_queue, df, header, csv_path)
     queue_read_tasks(in_queue, df, header)
     in_queue.join()
     out_queue.join()
 
 
 if __name__ == '__main__':
-    run()
+    try:
+        run(sys.argv[1])
+    except IndexError as e:
+        run('./data/bl-gbooks.csv')

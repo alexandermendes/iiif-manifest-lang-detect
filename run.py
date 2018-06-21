@@ -123,7 +123,7 @@ async def generate_tasks(df, http_client):
             try:
                 manifest = json.loads(r.body.decode('utf-8'))
             except (ValueError, AttributeError):
-                print('WARNING: Invalid manifest: {}'.format(manifest_uri))
+                update_dataframe(manifest_uri, 'Invalid manifest', df, 'error')
                 continue
             ocr_uris = get_ocr_uris(manifest)
             yield manifest_uri, ocr_uris
@@ -135,10 +135,9 @@ async def process(manifest_uri, ocr_uris, df, http_client):
     update_dataframe(manifest_uri, lang_code, df)
 
 
-def update_dataframe(manifest_uri, lang_code, df):
+def update_dataframe(manifest_uri, lang_code, df, field='lang'):
     """Update the dataframe."""
-    print(manifest_uri, lang_code)
-    df.at[manifest_uri, 'lang'] = lang_code
+    df.at[manifest_uri, field] = lang_code
 
 
 def get_csv_path():

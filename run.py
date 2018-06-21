@@ -33,8 +33,7 @@ def load_dataframe(path):
     # Set index and drop duplicates
     n_dupes = len(df[df.duplicated(subset=HEADER, keep=False)])
     if n_dupes:
-        print('WARNING: {} duplicate manifest URIs dropped'.format(n_dupes))
-        df.drop_duplicates(subset=HEADER, inplace=True)
+        print('WARNING: {} duplicate manifest URIs found'.format(n_dupes))
     df.set_index(HEADER, inplace=True, verify_integrity=True, drop=False)
     return df
 

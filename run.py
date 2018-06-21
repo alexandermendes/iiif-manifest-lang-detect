@@ -23,6 +23,10 @@ def load_dataframe(path):
     if HEADER not in df:
         raise ValueError('Manifest-URI column not in {}'.format(path))
 
+    # Add empty lang column
+    if 'lang' not in df:
+        df['lang'] = numpy.nan
+
     # Drop rows with no manifest URI
     df.dropna(subset=[HEADER], inplace=True)
 
@@ -101,8 +105,6 @@ def convert_lang_code(iso639_1_code):
 
 def get_unchecked_index(df):
     """List index for rows in the dataframe without a language code."""
-    if 'lang' not in df:
-        df['lang'] = numpy.nan
     no_langs_df = df.loc[~df.index.isin(df.dropna(subset=['lang']).index)]
     index = no_langs_df.index.tolist()
     return index

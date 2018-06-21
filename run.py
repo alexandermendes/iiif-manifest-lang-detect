@@ -2,6 +2,7 @@
 import time
 import sys
 import csv
+import tqdm
 import json
 import numpy
 import pandas
@@ -140,13 +141,6 @@ def update_dataframe(manifest_uri, lang_code, df):
     df.at[manifest_uri, 'lang'] = lang_code
 
 
-def print_count(df):
-    """Count the number of language codes detected."""
-    count = df['lang'].count() if 'lang' in df else 0
-    total = df[HEADER].count()
-    print('{0}/{1} rows processed'.format(count, total))
-
-
 def get_csv_path():
     """Get the input CSV path."""
     path = './data/bl-gbooks.csv'
@@ -160,21 +154,22 @@ async def main():
     csv_path = get_csv_path()
     df = load_dataframe(csv_path)
     count = 0
+    pbar = tqdm.tqdm(total=df[HEADER].count())
+    pbar.update(df['lang'].count() if 'lang' in df else 0)
 
     start_time = time.time()
     http_client = httpclient.AsyncHTTPClient()
     DetectorFactory.seed = 0
-    print_count(df)
     task_gen = generate_tasks(df, http_client)
     async for manifest_uri, ocr_uris in task_gen:
         await process(manifest_uri, ocr_uris, df, http_client)
         count += 1
+        pbar.update(1)
         if count and count % 100 == 0:
-            print_count(df)
             df.to_csv(csv_path, index=False)
 
-    print_count(df)
     df.to_csv(csv_path, index=False)
+    pbar.close()
 
     print("--- %s seconds ---" % (time.time() - start_time))
 

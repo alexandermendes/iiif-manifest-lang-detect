@@ -18,13 +18,16 @@ to detect the language. If we detect a language with >= 95% `CONFIDENCE` we
 set this as the language code for that item. If not, we add the text from
 the next group and check again. At the end of the process we should have
 identified, with >= 95% `CONFIDENCE`, that a random sample of at least
-`THRESHOLD` percent of each book is written in a particular language. The
-`THRESHOLD` and `CONFIDENCE` can be modified by updating their values at the
-top of the script.
+`THRESHOLD` percent of each book is written in a particular language. If no
+language can be established for an item the `xxx` placeholder is used.
+
+The `THRESHOLD` and `CONFIDENCE` can be modified by updating their values at
+the top of the script.
 
 The results are added to a `lang` column in the original CSV file. If the
 script is later run against the same CSV file rows that already contain a lang
-code will be ignored.
+code will be ignored. Errors encountered while parsing the manifests will be
+added to the `error` column.
 
 ## Requirements
 
@@ -48,5 +51,4 @@ to a CSV file containing those URIs when running the script, like so:
 python run.py /path/to/csv
 ```
 
-The CSV file must contain a column with the header `Manifest-URI`; all other
-columns will be ignored.
+The CSV file must contain a column with the header `Manifest-URI`.

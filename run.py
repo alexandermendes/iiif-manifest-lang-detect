@@ -34,7 +34,7 @@ def load_dataframe(path):
     n_dupes = len(df[df.duplicated(subset=HEADER, keep=False)])
     if n_dupes:
         print('WARNING: {} duplicate manifest URIs found'.format(n_dupes))
-    df.set_index(HEADER, inplace=True, verify_integrity=True, drop=False)
+    df.set_index(HEADER, inplace=True)
     return df
 
 

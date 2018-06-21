@@ -151,7 +151,6 @@ async def main():
     """Run the script."""
     csv_path = get_csv_path()
     df = load_dataframe(csv_path)
-    count = 0
     pbar = tqdm.tqdm(total=df[HEADER].count(),
                      initial=df['lang'].count() if 'lang' in df else 0)
     http_client = httpclient.AsyncHTTPClient()
@@ -159,10 +158,8 @@ async def main():
     task_gen = generate_tasks(df, http_client)
     async for manifest_uri, ocr_uris in task_gen:
         await process(manifest_uri, ocr_uris, df, http_client)
-        count += 1
-        print(pbar.count)
         pbar.update(1)
-        if count and count % 100 == 0:
+        if pbar.n and pbar.n % 100 == 0:
             df.to_csv(csv_path, index=False)
 
     df.to_csv(csv_path, index=False)

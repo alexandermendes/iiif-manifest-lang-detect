@@ -2,6 +2,8 @@
 
 > A script for identifying language codes from OCR data linked to IIIF manifests.
 
+While
+
 Initially written to identify the language codes for British Library
 collection items digitised by Google Books, although it is possible to
 feed in alternative inputs (see below).
@@ -24,6 +26,9 @@ The results are added to a `lang` column in the original CSV file. If the
 script is later run against the same CSV file rows that already contain a lang
 code will be ignored.
 
+## Requirements
+
+Python >=3.6
 
 ## Usage
 

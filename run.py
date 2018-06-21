@@ -2,8 +2,9 @@
 import time
 import sys
 import csv
+import json
+import numpy
 import pandas
-import requests
 import pycountry
 from random import shuffle
 from langdetect import detect_langs, DetectorFactory
@@ -68,6 +69,8 @@ def detect_language(responses, total):
 
 def get_chunks(seq, size):
     """Return a list as chunks."""
+    if not size:
+        return []
     return (seq[pos:pos + size] for pos in range(0, len(seq), size))
 
 
@@ -96,22 +99,33 @@ def convert_lang_code(iso639_1_code):
         return None
 
 
-def generate_tasks(df):
-    """Generate tasks as manifest URI with related OCR URIs."""
-    index = df.index.tolist()[:10]
-    for i in index:
-        row = df.loc[i].to_dict()
-        manifest_uri = row[HEADER]
-        if row.get('lang') and row.get('lang') == 'nan':
-            continue
-        r = requests.get(manifest_uri)
-        try:
-            manifest = r.json()
-        except ValueError:
-            print('Invalid manifest: {}'.format(manifest_uri))
-            continue
-        ocr_uris = get_ocr_uris(manifest)
-        yield manifest_uri, ocr_uris
+def get_unchecked_index(df):
+    """List index for rows in the dataframe without a language code."""
+    if 'lang' not in df:
+        df['lang'] = numpy.nan
+    no_langs_df = df.loc[~df.index.isin(df.dropna(subset=['lang']).index)]
+    index = no_langs_df.index.tolist()[:100]
+    return index
+
+
+async def generate_tasks(df, http_client):
+    """Generate tasks as manifest URI with related OCR URIs.
+
+    Manifests are requested in batches of 100.
+    """
+    index = get_unchecked_index(df)
+    for group in get_chunks(index, 100):
+        responses = await multi([http_client.fetch(uri, raise_error=False)
+                                 for uri in group])
+        for r in responses:
+            manifest_uri = r.request.url
+            try:
+                manifest = json.loads(r.body.decode('utf-8'))
+            except (ValueError, AttributeError):
+                print('WARNING: Invalid manifest: {}'.format(manifest_uri))
+                continue
+            ocr_uris = get_ocr_uris(manifest)
+            yield manifest_uri, ocr_uris
 
 
 async def process(manifest_uri, ocr_uris, df, http_client):
@@ -122,6 +136,7 @@ async def process(manifest_uri, ocr_uris, df, http_client):
 
 def update_dataframe(manifest_uri, lang_code, df):
     """Update the dataframe."""
+    print(manifest_uri, lang_code)
     df.at[manifest_uri, 'lang'] = lang_code
 
 
@@ -140,7 +155,7 @@ def get_csv_path():
     return path
 
 
-def main():
+async def main():
     """Run the script."""
     csv_path = get_csv_path()
     df = load_dataframe(csv_path)
@@ -150,13 +165,15 @@ def main():
     http_client = httpclient.AsyncHTTPClient()
     DetectorFactory.seed = 0
     print_count(df)
-    task_gen = generate_tasks(df)
-    for manifest_uri, ocr_uris in task_gen:
-        process(manifest_uri, ocr_uris, df, http_client)
+    task_gen = generate_tasks(df, http_client)
+    async for manifest_uri, ocr_uris in task_gen:
+        await process(manifest_uri, ocr_uris, df, http_client)
         count += 1
         if count and count % 100 == 0:
+            print_count(df)
             df.to_csv(csv_path, index=False)
 
+    print_count(df)
     df.to_csv(csv_path, index=False)
 
     print("--- %s seconds ---" % (time.time() - start_time))

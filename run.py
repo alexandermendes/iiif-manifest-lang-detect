@@ -2,7 +2,6 @@
 import sys
 import tqdm
 import json
-import numpy
 import pandas
 import pycountry
 from random import shuffle
@@ -25,8 +24,8 @@ def load_dataframe(path):
 
     # Add empty lang column
     if 'lang' not in df:
-        df['lang'] = numpy.nan
-
+        df['lang'] = None
+    print(df.dtypes)
     # Drop rows with no manifest URI
     df.dropna(subset=[HEADER], inplace=True)
 

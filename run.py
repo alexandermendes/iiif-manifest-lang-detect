@@ -25,7 +25,7 @@ def load_dataframe(path):
     # Add empty lang column
     if 'lang' not in df:
         df['lang'] = None
-    print(df.dtypes)
+
     # Drop rows with no manifest URI
     df.dropna(subset=[HEADER], inplace=True)
 

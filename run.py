@@ -163,7 +163,6 @@ async def main():
             df.to_csv(csv_path, index=False)
 
     df.to_csv(csv_path, index=False)
-    pbar.close()
 
 if __name__ == '__main__':
     io_loop = ioloop.IOLoop.current()

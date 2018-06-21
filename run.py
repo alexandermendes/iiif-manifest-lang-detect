@@ -104,7 +104,7 @@ def get_unchecked_index(df):
     if 'lang' not in df:
         df['lang'] = numpy.nan
     no_langs_df = df.loc[~df.index.isin(df.dropna(subset=['lang']).index)]
-    index = no_langs_df.index.tolist()[:100]
+    index = no_langs_df.index.tolist()
     return index
 
 
@@ -152,15 +152,15 @@ async def main():
     csv_path = get_csv_path()
     df = load_dataframe(csv_path)
     count = 0
-    pbar = tqdm.tqdm(total=df[HEADER].count())
-    pbar.update(df['lang'].count() if 'lang' in df else 0)
-
+    pbar = tqdm.tqdm(total=df[HEADER].count(),
+                     initial=df['lang'].count() if 'lang' in df else 0)
     http_client = httpclient.AsyncHTTPClient()
     DetectorFactory.seed = 0
     task_gen = generate_tasks(df, http_client)
     async for manifest_uri, ocr_uris in task_gen:
         await process(manifest_uri, ocr_uris, df, http_client)
         count += 1
+        print(pbar.count)
         pbar.update(1)
         if count and count % 100 == 0:
             df.to_csv(csv_path, index=False)

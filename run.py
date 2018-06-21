@@ -1,6 +1,5 @@
 #-*- coding: utf8 -*-
 import sys
-import csv
 import tqdm
 import json
 import numpy

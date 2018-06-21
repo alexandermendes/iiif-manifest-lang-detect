@@ -1,5 +1,4 @@
 #-*- coding: utf8 -*-
-import time
 import sys
 import csv
 import tqdm
@@ -157,7 +156,6 @@ async def main():
     pbar = tqdm.tqdm(total=df[HEADER].count())
     pbar.update(df['lang'].count() if 'lang' in df else 0)
 
-    start_time = time.time()
     http_client = httpclient.AsyncHTTPClient()
     DetectorFactory.seed = 0
     task_gen = generate_tasks(df, http_client)
@@ -170,8 +168,6 @@ async def main():
 
     df.to_csv(csv_path, index=False)
     pbar.close()
-
-    print("--- %s seconds ---" % (time.time() - start_time))
 
 if __name__ == '__main__':
     io_loop = ioloop.IOLoop.current()

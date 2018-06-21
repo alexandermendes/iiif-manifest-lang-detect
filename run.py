@@ -135,9 +135,9 @@ async def process(manifest_uri, ocr_uris, df, http_client):
     update_dataframe(manifest_uri, lang_code, df)
 
 
-def update_dataframe(manifest_uri, lang_code, df, field='lang'):
+def update_dataframe(manifest_uri, value, df, field='lang'):
     """Update the dataframe."""
-    df.at[manifest_uri, field] = lang_code
+    df.at[manifest_uri, field] = value
 
 
 def get_csv_path():

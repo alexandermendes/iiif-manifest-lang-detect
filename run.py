@@ -90,6 +90,7 @@ async def check_ocr(ocr_uris, http_client):
         code = detect_language(responses, total)
         if code:
             return code
+    return 'xxx'
 
 
 def convert_lang_code(iso639_1_code):

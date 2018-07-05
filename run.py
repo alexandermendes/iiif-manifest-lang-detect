@@ -3,6 +3,7 @@ import sys
 import tqdm
 import json
 import pandas
+import click
 import pycountry
 from random import shuffle
 from langdetect import detect_langs, DetectorFactory
@@ -108,12 +109,12 @@ def get_unchecked_index(df):
     return index
 
 
-async def generate_tasks(df, http_client):
+async def generate_tasks(df, http_client, offset=0):
     """Generate tasks as manifest URI with related OCR URIs.
 
     Manifests are requested in batches of 100.
     """
-    index = get_unchecked_index(df)
+    index = get_unchecked_index(df)[offset:]
     for group in get_chunks(index, 100):
         responses = await multi([http_client.fetch(uri, raise_error=False)
                                  for uri in group])
@@ -147,7 +148,7 @@ def get_csv_path():
     return path
 
 
-async def main():
+async def main(offset):
     """Run the script."""
     csv_path = get_csv_path()
     df = load_dataframe(csv_path)
@@ -155,15 +156,21 @@ async def main():
                      initial=df['lang'].count() if 'lang' in df else 0)
     http_client = httpclient.AsyncHTTPClient()
     DetectorFactory.seed = 0
-    task_gen = generate_tasks(df, http_client)
+    task_gen = generate_tasks(df, http_client, offset)
     async for manifest_uri, ocr_uris in task_gen:
         await process(manifest_uri, ocr_uris, df, http_client)
         pbar.update(1)
         if pbar.n and pbar.n % 100 == 0:
             df.to_csv(csv_path, index=False)
-
     df.to_csv(csv_path, index=False)
 
-if __name__ == '__main__':
+
+@click.command()
+@click.option('--offset', default=0)
+def run(offset):
     io_loop = ioloop.IOLoop.current()
-    io_loop.run_sync(main)
+    io_loop.run_sync(lambda: main(offset))
+
+
+if __name__ == '__main__':
+    run()

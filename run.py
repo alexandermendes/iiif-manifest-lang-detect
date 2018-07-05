@@ -10,6 +10,7 @@ from langdetect import detect_langs, DetectorFactory
 from langdetect.lang_detect_exception import LangDetectException
 from tornado import ioloop, httpclient
 from tornado.gen import multi
+from retrying import retry
 
 
 THRESHOLD = 20
@@ -148,6 +149,7 @@ def get_csv_path():
     return path
 
 
+@retry
 async def main(offset):
     """Run the script."""
     csv_path = get_csv_path()

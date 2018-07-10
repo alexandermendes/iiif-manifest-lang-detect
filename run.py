@@ -149,7 +149,6 @@ def get_csv_path():
     return path
 
 
-@retry
 async def main(offset):
     """Run the script."""
     csv_path = get_csv_path()
@@ -167,6 +166,7 @@ async def main(offset):
     df.to_csv(csv_path, index=False)
 
 
+@retry
 @click.command()
 @click.option('--offset', default=0)
 def run(offset):

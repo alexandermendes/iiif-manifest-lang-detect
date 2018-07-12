@@ -37,8 +37,8 @@ the top of the script.
 
 ## Requirements
 
-Python >= 3.6
-Ubuntu >= 14.04 (for Redis)
+- Python >= 3.6
+- Ubuntu >= 14.04 (for Redis)
 
 ## Installation
 

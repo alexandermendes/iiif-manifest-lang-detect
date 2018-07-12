@@ -149,8 +149,7 @@ class Shadow(Actor):
             now = time.time()
             diff = now - self.start_time
             per_s = format(self.n_processed / diff, '.2f')
-            print('PROCESSED ROWS: {0} - {1}/s'.format(self.n_processed,
-                                                       per_s))
+            print('{0} PROCESSED : {1}/s'.format(self.n_processed, per_s))
 
     async def shutdown(self):
         self.session.close()

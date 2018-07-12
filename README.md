@@ -18,21 +18,19 @@ random order and batched into groups. The proportional size of each group is
 determined by the `THRESHOLD` variable. If `THRESHOLD` is set to 20 (as is
 the default) then each batch will be 20% of the total number of OCR pages.
 
-These groups are iterated over and for  each the related set of OCRed pages
+These groups are iterated over and for each the related set of OCRed pages
 requested, the text combined and an attempt made to detect the language. If we
 detect a language with >= 95% `CONFIDENCE` we store the related ISO 8601
-three-letter language code against the item. If a lanugage code can't by
+two-letter language code against the item. If a lanugage code can't by
 identified from the group we add the text from the next group and check again.
 
 At the end of the process we should have identified, with >= 95% `CONFIDENCE`,
 that a random sample of at least `THRESHOLD` percent of each book is written
 in a particular language. If no language can be established for an item the
-`xxx` placeholder is used.
+`xx` placeholder is used.
 
-The results are added to a `lang` column in the original CSV file. If the
-script is later run against the same CSV file rows that already contain a lang
-code will be ignored. Any errors encountered while parsing the manifests will
-be added to the `error` column.
+The results are added to a file called `success.csv`. Rows where errors are
+encountered while parsing will be added to the `error.csv` file.
 
 The `THRESHOLD` and `CONFIDENCE` can be modified by updating their values at
 the top of the script.
@@ -68,7 +66,13 @@ to a CSV file containing those URIs when running the script, like so:
 
 ```
 python run.py /path/to/csv
+arq run.py /path/to/csv
 ```
 
 The CSV file must contain a column with the `HEADER` identified in
 [settings.py](bin/settings.py) (default `Manifest-URI`).
+
+## Concurrency
+
+To speed things up run multiple workers by calling `arq run.py` from seperate
+terminals.

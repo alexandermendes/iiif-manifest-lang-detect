@@ -1,4 +1,5 @@
 #-*- coding: utf8 -*-
+import csv
 import sys
 import tqdm
 import json
@@ -13,17 +14,19 @@ from arq import Actor, BaseWorker, concurrent
 import settings
 
 
+def get_csv_path():
+    path = './data/bl-gbooks.csv'
+    if len(sys.argv) > 2:
+        path = sys.argv[1]
+    return path
+
+
 def load_dataframe(path):
     """Load a CSV file into a dataframe."""
     print('Loading dataframe...')
     df = pandas.read_csv(path, dtype=str)
     if settings.HEADER not in df:
         raise ValueError('{0} column not in {1}'.format(settings.HEADER, path))
-
-    if 'lang' not in df:
-        df['lang'] = None
-    if 'error' not in df:
-        df['error'] = None
 
     # Drop rows with no manifest URI
     df.dropna(subset=[settings.HEADER], inplace=True)
@@ -36,59 +39,47 @@ def load_dataframe(path):
     return df
 
 
-def get_csv_path():
-    """Get the input CSV path."""
-    path = './data/bl-gbooks.csv'
-    if len(sys.argv) > 2:
-        path = sys.argv[1]
-    return path
-
-
-def get_chunks(seq, size):
-    """Return a list as chunks."""
-    if not size:
-        return []
-    return (seq[pos:pos + size] for pos in range(0, len(seq), size))
-
-
-def n_processed(df):
-    """Return number of rows processed."""
-    n_langs = df['lang'].count() if 'lang' in df else 0
-    n_errors = df['error'].count() if 'error' in df else 0
-    total = n_langs + n_errors
-    return total
-
-
 class Shadow(Actor):
     async def startup(self):
-        self.csv_path = get_csv_path()
-        self.df = load_dataframe(self.csv_path)
+        csv_path = get_csv_path()
+        df = load_dataframe(csv_path)
+        fieldnames = df.columns.tolist()
+        fieldnames.append('lang')
+        fieldnames = list(set(fieldnames))
+        success_file = open('success.csv', 'a')
+        errors_file = open('errors.csv', 'a')
+        self.success_writer = csv.DictWriter(success_file,
+                                             fieldnames=fieldnames)
+        self.errors_writer = csv.DictWriter(errors_file,
+                                            fieldnames=fieldnames)
+        self.success_writer.writeheader()
+        self.errors_writer.writeheader()
         self.session = ClientSession(loop=self.loop)
+        self.n_processed = 0
 
     async def fetch(self, url, session):
         async with session.get(url) as response:
             return await response.read()
 
     @concurrent
-    async def process(self, manifest_uri, save=False):
+    async def process(self, manifest_uri, row):
         async with self.session.get(manifest_uri) as response:
             content = await response.read()
             try:
                 manifest = json.loads(content.decode('utf-8'))
             except Exception as e:
-                self.update_dataframe(manifest_uri, 'Invalid manifest URI',
-                                      'error')
-                if save:
-                    self.save()
+                self.errors_writer.writerow(row)
+                self.report()
                 return
-        await self.process_manifest(manifest_uri, manifest)
-        if save:
-            self.save()
+        lang_code = await self.process_manifest(manifest_uri, manifest)
+        row['lang'] = lang_code
+        self.success_writer.writerow(row)
+        self.report()
 
     async def process_manifest(self, manifest_uri, manifest):
         ocr_uris = self.get_ocr_uris(manifest)
         lang_code = await self.check_ocr(ocr_uris)
-        self.update_dataframe(manifest_uri, lang_code, 'lang')
+        return lang_code
 
     async def download_ocr(self, ocr_uris):
         tasks = []
@@ -122,12 +113,18 @@ class Shadow(Actor):
         total = len(ocr_uris)
         batch_size = int((float(settings.THRESHOLD) / 100) * total)
         ocr = ''
-        for group in get_chunks(ocr_uris, batch_size):
+        for group in self.get_chunks(ocr_uris, batch_size):
             ocr += await self.download_ocr(group)
             code = self.detect_language(ocr)
             if code:
                 return code
-        return 'xxx'
+        return 'xx'
+
+    def get_chunks(self, seq, size):
+        """Return a list as chunks."""
+        if not size:
+            return []
+        return (seq[pos:pos + size] for pos in range(0, len(seq), size))
 
     def detect_language(self, ocr):
         """Detect language from OCR text."""
@@ -144,14 +141,10 @@ class Shadow(Actor):
         if top.prob >= settings.CONFIDENCE / float(100):
             return top.lang
 
-    def update_dataframe(self, manifest_uri, value, field):
-        """Update the dataframe."""
-        self.df.at[manifest_uri, field] = value
-
-    def save(self):
-        """Save the current dataframe to CSV."""
-        self.df.to_csv(self.csv_path, index=False)
-        print('PROCESSED ROWS: {}'.format(n_processed(self.df)))
+    def report(self):
+        self.n_processed += 1
+        if self.n_processed % 100 == 0:
+            print('PROCESSED ROWS: {}'.format(self.n_processed))
 
     async def shutdown(self):
         self.session.close()
@@ -163,19 +156,28 @@ class Worker(BaseWorker):
     shadows = [Shadow]
 
 
+def init_csv(fn, fieldnames):
+    """Initialise a CSV file and return a list of all values under HEADER."""
+    try:
+        f = open(fn, 'r')
+    except FileNotFoundError:
+        return []
+    reader = csv.DictReader(f)
+    return [row[settings.HEADER] for row in reader]
+
+
 async def run():
     """Run the script."""
     csv_path = get_csv_path()
     df = load_dataframe(csv_path)
+    fieldnames = df.columns.tolist()
     shadow = Shadow()
-    unchecked_df = df.loc[~df.index.isin(df.dropna(subset=['lang']).index)]
-    index = unchecked_df.index.tolist()
-    pbar = tqdm.tqdm(total=df[settings.HEADER].count(),
-                     initial=n_processed(df))
-    for group in get_chunks(index, 100):
-        [await shadow.process(manifest_uri) for manifest_uri in group[:-1]]
-        await shadow.process(group[-1], True)
-        pbar.update(len(group))
+    success = init_csv('success.csv', fieldnames)
+    errors = init_csv('errors.csv', fieldnames)
+    unchecked = [uri for uri in df.index if uri not in success + errors]
+    for manifest_uri in tqdm.tqdm(unchecked):
+        row = df.loc[manifest_uri].to_dict()
+        await shadow.process(manifest_uri, row)
     await shadow.close()
 
 

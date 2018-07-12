@@ -143,6 +143,8 @@ class Shadow(Actor):
     def save(self):
         """Save the current dataframe to CSV."""
         self.df.to_csv(self.csv_path, index=False)
+        count = self.df['lang'].count() if 'lang' in self.df else 0
+        print('PROCESSED ROWS: {}'.format(count))
 
     async def shutdown(self):
         self.session.close()
@@ -164,7 +166,7 @@ async def run():
     pbar = tqdm.tqdm(total=df[settings.HEADER].count(),
                      initial=df['lang'].count() if 'lang' in df else 0)
 
-    for group in get_chunks(index, 1000):
+    for group in get_chunks(index, 100):
         [await shadow.process(manifest_uri) for manifest_uri in group[:-1]]
         await shadow.process(group[-1], True)
         pbar.update(len(group))

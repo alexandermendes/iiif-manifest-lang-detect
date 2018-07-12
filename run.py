@@ -1,16 +1,18 @@
 #-*- coding: utf8 -*-
 import sys
+import csv
 import tqdm
 import json
 import pandas
-import click
-import pycountry
 from random import shuffle
 from langdetect import detect_langs, DetectorFactory
 from langdetect.lang_detect_exception import LangDetectException
 from tornado import ioloop, httpclient
 from tornado.gen import multi
-import time
+
+import asyncio
+from aiohttp import ClientSession
+from arq import Actor, BaseWorker, concurrent
 
 import settings
 
@@ -37,141 +39,127 @@ def load_dataframe(path):
     return df
 
 
-def get_ocr_uris(manifest):
-    """Get the plain text OCR URIs from a manifest."""
-    uris = []
-    canvases = manifest['sequences'][0]['canvases']
-    for canvas in canvases:
-        try:
-            uri = [item for item in canvas['seeAlso']
-                   if item['format'] == 'text/plain'][0]['@id']
-        except (KeyError, IndexError):
-            continue
-        uris.append(uri)
-    return uris
-
-
-def detect_language(responses, total):
-    """Detect language from OCR text."""
-    text = ' '.join([str(r.body) for r in responses])
-    try:
-        langs = detect_langs(text)
-    except LangDetectException:
-        return None
-
-    if not langs:
-        return None
-
-    top = langs[0]
-    code = convert_lang_code(top.lang)
-    if top.prob >= settings.CONFIDENCE / float(100):
-        return convert_lang_code(top.lang)
-
-
-def get_chunks(seq, size):
-    """Return a list as chunks."""
-    if not size:
-        return []
-    return (seq[pos:pos + size] for pos in range(0, len(seq), size))
-
-
-async def check_ocr(ocr_uris, http_client):
-    """Detect languages from OCR data.
-
-    Shuffle the OCR URIs into a random order then batch by the number of
-    pages required to pass the THRESHOLD.
-    """
-    shuffle(ocr_uris)
-    total = len(ocr_uris)
-    batch_size = int((float(settings.THRESHOLD) / 100) * total)
-    responses = []
-    for group in get_chunks(ocr_uris, batch_size):
-        responses += await multi([http_client.fetch(uri) for uri in group])
-        code = detect_language(responses, total)
-        if code:
-            return code
-    return 'xxx'
-
-
-def convert_lang_code(iso639_1_code):
-    """Convert from two character to three character language codes."""
-    try:
-        return pycountry.languages.get(alpha_2=iso639_1_code).alpha_3
-    except Exception:
-        return None
-
-
-def get_unchecked_index(df):
-    """List index for rows in the dataframe without a language code."""
-    no_langs_df = df.loc[~df.index.isin(df.dropna(subset=['lang']).index)]
-    index = no_langs_df.index.tolist()
-    return index
-
-
-async def generate_tasks(df, http_client, offset=0):
-    """Generate tasks as manifest URI with related OCR URIs.
-
-    Manifests are requested in batches of 100.
-    """
-    index = get_unchecked_index(df)[offset:]
-    for group in get_chunks(index, 100):
-        responses = await multi([http_client.fetch(uri, raise_error=False)
-                                 for uri in group])
-        for r in responses:
-            manifest_uri = r.request.url
-            try:
-                manifest = json.loads(r.body.decode('utf-8'))
-            except (ValueError, AttributeError):
-                update_dataframe(manifest_uri, 'Invalid manifest', df, 'error')
-                continue
-            ocr_uris = get_ocr_uris(manifest)
-            yield manifest_uri, ocr_uris
-
-
-async def process(manifest_uri, ocr_uris, df, http_client):
-    """Check languages for items in the queue and persist."""
-    start = time.time()
-    lang_code = await check_ocr(ocr_uris, http_client)
-    print(time.time() - start)
-    update_dataframe(manifest_uri, lang_code, df)
-
-
-def update_dataframe(manifest_uri, value, df, field='lang'):
-    """Update the dataframe."""
-    df.at[manifest_uri, field] = value
-
-
 def get_csv_path():
     """Get the input CSV path."""
-    path = './data/bl-gbooks.csv'
+    path = './data/test.csv'
     if len(sys.argv) > 2:
         path = sys.argv[1]
     return path
 
 
-async def main(offset):
+class Shadow(Actor):
+    async def startup(self):
+        self.csv_path = get_csv_path()
+        self.df = load_dataframe(self.csv_path)
+        self.session = ClientSession(loop=self.loop)
+
+    async def fetch(self, url, session):
+        async with session.get(url) as response:
+            return await response.read()
+
+    @concurrent
+    async def process(self, manifest_uri):
+        async with self.session.get(manifest_uri) as response:
+            content = await response.read()
+            try:
+                manifest = json.loads(content.decode('utf-8'))
+            except Exception as e:
+                self.update_dataframe(manifest_uri, 'Invalid URI', 'error')
+                return
+        await self.process_manifest(manifest_uri, manifest)
+
+    async def process_manifest(self, manifest_uri, manifest):
+        ocr_uris = self.get_ocr_uris(manifest)
+        lang_code = await self.check_ocr(ocr_uris)
+        self.update_dataframe(manifest_uri, lang_code, 'lang')
+
+    async def download_ocr(self, ocr_uris):
+        tasks = []
+        for uri in ocr_uris:
+            task = asyncio.ensure_future(self.fetch(uri, self.session))
+            tasks.append(task)
+        responses = await asyncio.gather(*tasks)
+        return ' '.join([str(r) for r in responses])
+
+
+    def get_ocr_uris(self, manifest):
+        """Get the OCR URIs from a manifest."""
+        uris = []
+        canvases = manifest['sequences'][0]['canvases']
+        for canvas in canvases:
+            try:
+                uri = [item for item in canvas['seeAlso']
+                      if item['format'] == 'text/plain'][0]['@id']
+            except (KeyError, IndexError):
+                continue
+            uris.append(uri)
+        return uris
+
+    def get_chunks(self, seq, size):
+        """Return a list as chunks."""
+        if not size:
+            return []
+        return (seq[pos:pos + size] for pos in range(0, len(seq), size))
+
+    async def check_ocr(self, ocr_uris):
+        """Detect languages from OCR data.
+
+        Shuffle the OCR URIs into a random order then batch by the number of
+        pages required to pass the THRESHOLD.
+        """
+        shuffle(ocr_uris)
+        total = len(ocr_uris)
+        batch_size = int((float(settings.THRESHOLD) / 100) * total)
+        ocr = ''
+        for group in self.get_chunks(ocr_uris, batch_size):
+            ocr += await self.download_ocr(group)
+            code = self.detect_language(ocr)
+            if code:
+                return code
+        return 'xxx'
+
+    def detect_language(self, ocr):
+        """Detect language from OCR text."""
+        try:
+            langs = detect_langs(ocr)
+        except LangDetectException:
+            return None
+
+        if not langs:
+            return None
+
+        top = langs[0]
+        code = top.lang
+        if top.prob >= settings.CONFIDENCE / float(100):
+            return top.lang
+
+    def update_dataframe(self, manifest_uri, value, field):
+        """Update the dataframe."""
+        self.df.at[manifest_uri, field] = value
+
+    async def shutdown(self):
+        self.session.close()
+
+
+class Worker(BaseWorker):
+    max_concurrent_tasks = settings.MAX_CONCURRENT_TASKS
+    shadows = [Shadow]
+
+
+async def run():
     """Run the script."""
     csv_path = get_csv_path()
     df = load_dataframe(csv_path)
-    pbar = tqdm.tqdm(total=df[settings.HEADER].count(),
-                     initial=df['lang'].count() if 'lang' in df else 0)
-    http_client = httpclient.AsyncHTTPClient()
-    DetectorFactory.seed = 0
-    task_gen = generate_tasks(df, http_client, offset)
-    async for manifest_uri, ocr_uris in task_gen:
-        await process(manifest_uri, ocr_uris, df, http_client)
-        pbar.update(1)
-        if pbar.n and pbar.n % settings.BATCH_SIZE == 0:
-            df.to_csv(csv_path, index=False)
-    df.to_csv(csv_path, index=False)
-
-
-@click.command()
-@click.option('--offset', default=0)
-def run(offset):
-    io_loop = ioloop.IOLoop.current()
-    io_loop.run_sync(lambda: main(offset))
+    shadow = Shadow()
+    unchecked_df = df.loc[~df.index.isin(df.dropna(subset=['lang']).index)]
+    index = unchecked_df.index.tolist()
+    for manifest_uri in tqdm.tqdm(index, desc='Queuing tasks'):
+        await shadow.process(manifest_uri)
+    await shadow.close()
 
 
 if __name__ == '__main__':
-    run()
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(run())
+
+

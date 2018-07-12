@@ -11,8 +11,7 @@ feed in alternative inputs (see below).
 A list of IIIF manifest URIs is given as the initial input. For each
 manifest we iterate over its canvases and check the `seeAlso` key to identify
 URIs to related a documents in the `text/plain` format; these should contain
-our OCR data. These URIs are added to a `ocr_uris` column in the original
-CSV file.
+our OCR data.
 
 For each manifest, the OCR URIs identified above are then shuffled into a
 random order and batched into groups. The proportional size of each group is
@@ -40,16 +39,27 @@ the top of the script.
 
 ## Requirements
 
-Python >=3.6
+Python >= 3.6
+Ubuntu >= 14.04 (for Redis)
 
-## Usage
+## Installation
 
 ```bash
 # install dependencies
 pip install -r requirements.txt
 
-# run
+# install Redis
+sudo apt-get install redis-server
+```
+
+## Usage
+
+```bash
+# queue tasks
 python run.py
+
+# run worker
+arq run.py
 ```
 
 By default, [/data/bl-gbooks.csv](/data/bl-gbooks.csv) will be used as
@@ -57,9 +67,8 @@ the input. To use an alternative list of IIIF manifest URIs pass the path
 to a CSV file containing those URIs when running the script, like so:
 
 ```
-python bin/get_ocr_uris.py /path/to/csv
-python bin/get_langs.py /path/to/csv
+python run.py /path/to/csv
 ```
 
 The CSV file must contain a column with the `HEADER` identified in
-[bin/settings.py](bin/settings.py) (default `Manifest-URI`).
+[settings.py](bin/settings.py) (default `Manifest-URI`).

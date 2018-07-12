@@ -1,5 +1,5 @@
-# Number of manifests to process in each batch
-BATCH_SIZE = 1000
+# Number of manifests to process concurrently
+MAX_CONCURRENT_TASKS = 500
 
 # Minimum number of pages where a language should be identified with CONFIDENCE
 THRESHOLD = 20

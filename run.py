@@ -20,9 +20,10 @@ def load_dataframe(path):
     if settings.HEADER not in df:
         raise ValueError('{0} column not in {1}'.format(settings.HEADER, path))
 
-    # Add empty lang column
     if 'lang' not in df:
         df['lang'] = None
+    if 'error' not in df:
+        df['error'] = None
 
     # Drop rows with no manifest URI
     df.dropna(subset=[settings.HEADER], inplace=True)

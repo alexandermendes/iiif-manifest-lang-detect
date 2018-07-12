@@ -3,6 +3,7 @@ import csv
 import sys
 import tqdm
 import json
+import time
 import pandas
 import asyncio
 from random import shuffle
@@ -56,6 +57,7 @@ class Shadow(Actor):
         self.errors_writer.writeheader()
         self.session = ClientSession(loop=self.loop)
         self.n_processed = 0
+        self.start_time = time.time()
 
     async def fetch(self, url, session):
         async with session.get(url) as response:
@@ -144,7 +146,11 @@ class Shadow(Actor):
     def report(self):
         self.n_processed += 1
         if self.n_processed % 100 == 0:
-            print('PROCESSED ROWS: {}'.format(self.n_processed))
+            now = time.time()
+            diff = self.start_time - now
+            per_s = '%.2f'.format(self.n_processed / diff)
+            print('PROCESSED ROWS: {0} - {1}/s'.format(self.n_processed,
+                                                       per_s))
 
     async def shutdown(self):
         self.session.close()

@@ -147,7 +147,7 @@ class Shadow(Actor):
         self.n_processed += 1
         if self.n_processed % 100 == 0:
             now = time.time()
-            diff = self.start_time - now
+            diff = now - self.start_time
             per_s = format(self.n_processed / diff, '.2f')
             print('PROCESSED ROWS: {0} - {1}/s'.format(self.n_processed,
                                                        per_s))

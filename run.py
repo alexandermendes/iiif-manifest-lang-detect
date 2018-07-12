@@ -1,16 +1,12 @@
 #-*- coding: utf8 -*-
 import sys
-import csv
 import tqdm
 import json
 import pandas
+import asyncio
 from random import shuffle
 from langdetect import detect_langs, DetectorFactory
 from langdetect.lang_detect_exception import LangDetectException
-from tornado import ioloop, httpclient
-from tornado.gen import multi
-
-import asyncio
 from aiohttp import ClientSession
 from arq import Actor, BaseWorker, concurrent
 
@@ -41,7 +37,7 @@ def load_dataframe(path):
 
 def get_csv_path():
     """Get the input CSV path."""
-    path = './data/test.csv'
+    path = './data/bl-gbooks.csv'
     if len(sys.argv) > 2:
         path = sys.argv[1]
     return path

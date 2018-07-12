@@ -47,6 +47,13 @@ def get_csv_path():
     return path
 
 
+def get_chunks(seq, size):
+    """Return a list as chunks."""
+    if not size:
+        return []
+    return (seq[pos:pos + size] for pos in range(0, len(seq), size))
+
+
 class Shadow(Actor):
     async def startup(self):
         self.csv_path = get_csv_path()
@@ -58,15 +65,20 @@ class Shadow(Actor):
             return await response.read()
 
     @concurrent
-    async def process(self, manifest_uri):
+    async def process(self, manifest_uri, save=False):
         async with self.session.get(manifest_uri) as response:
             content = await response.read()
             try:
                 manifest = json.loads(content.decode('utf-8'))
             except Exception as e:
-                self.update_dataframe(manifest_uri, 'Invalid URI', 'error')
+                self.update_dataframe(manifest_uri, 'Invalid manifest URI',
+                                      'error')
+                if save:
+                    self.save()
                 return
         await self.process_manifest(manifest_uri, manifest)
+        if save:
+            self.save()
 
     async def process_manifest(self, manifest_uri, manifest):
         ocr_uris = self.get_ocr_uris(manifest)
@@ -95,12 +107,6 @@ class Shadow(Actor):
             uris.append(uri)
         return uris
 
-    def get_chunks(self, seq, size):
-        """Return a list as chunks."""
-        if not size:
-            return []
-        return (seq[pos:pos + size] for pos in range(0, len(seq), size))
-
     async def check_ocr(self, ocr_uris):
         """Detect languages from OCR data.
 
@@ -111,7 +117,7 @@ class Shadow(Actor):
         total = len(ocr_uris)
         batch_size = int((float(settings.THRESHOLD) / 100) * total)
         ocr = ''
-        for group in self.get_chunks(ocr_uris, batch_size):
+        for group in get_chunks(ocr_uris, batch_size):
             ocr += await self.download_ocr(group)
             code = self.detect_language(ocr)
             if code:
@@ -137,11 +143,16 @@ class Shadow(Actor):
         """Update the dataframe."""
         self.df.at[manifest_uri, field] = value
 
+    def save(self):
+        """Save the current dataframe to CSV."""
+        self.df.to_csv(self.csv_path, index=False)
+
     async def shutdown(self):
         self.session.close()
 
 
 class Worker(BaseWorker):
+    timeout_seconds = 3600
     max_concurrent_tasks = settings.MAX_CONCURRENT_TASKS
     shadows = [Shadow]
 
@@ -153,8 +164,13 @@ async def run():
     shadow = Shadow()
     unchecked_df = df.loc[~df.index.isin(df.dropna(subset=['lang']).index)]
     index = unchecked_df.index.tolist()
-    for manifest_uri in tqdm.tqdm(index, desc='Queuing tasks'):
-        await shadow.process(manifest_uri)
+    pbar = tqdm.tqdm(total=df[settings.HEADER].count(),
+                     initial=df['lang'].count() if 'lang' in df else 0)
+
+    for group in get_chunks(index, 1000):
+        [await shadow.process(manifest_uri) for manifest_uri in group[:-1]]
+        await shadow.process(group[-1], True)
+        pbar.update(len(group))
     await shadow.close()
 
 

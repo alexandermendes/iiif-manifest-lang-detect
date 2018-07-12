@@ -53,8 +53,8 @@ def get_chunks(seq, size):
 
 def n_processed(df):
     """Return number of rows processed."""
-    n_langs = self.df['lang'].count() if 'lang' in self.df else 0
-    n_errors = self.df['error'].count() if 'error' in self.df else 0
+    n_langs = df['lang'].count() if 'lang' in df else 0
+    n_errors = df['error'].count() if 'error' in df else 0
     total = n_langs + n_errors
     return total
 

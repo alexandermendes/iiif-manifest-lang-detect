@@ -51,6 +51,14 @@ def get_chunks(seq, size):
     return (seq[pos:pos + size] for pos in range(0, len(seq), size))
 
 
+def n_processed(df):
+    """Return number of rows processed."""
+    n_langs = self.df['lang'].count() if 'lang' in self.df else 0
+    n_errors = self.df['error'].count() if 'error' in self.df else 0
+    total = n_langs + n_errors
+    return total
+
+
 class Shadow(Actor):
     async def startup(self):
         self.csv_path = get_csv_path()
@@ -143,8 +151,7 @@ class Shadow(Actor):
     def save(self):
         """Save the current dataframe to CSV."""
         self.df.to_csv(self.csv_path, index=False)
-        count = self.df['lang'].count() if 'lang' in self.df else 0
-        print('PROCESSED ROWS: {}'.format(count))
+        print('PROCESSED ROWS: {}'.format(n_processed(self.df)))
 
     async def shutdown(self):
         self.session.close()
@@ -164,8 +171,7 @@ async def run():
     unchecked_df = df.loc[~df.index.isin(df.dropna(subset=['lang']).index)]
     index = unchecked_df.index.tolist()
     pbar = tqdm.tqdm(total=df[settings.HEADER].count(),
-                     initial=df['lang'].count() if 'lang' in df else 0)
-
+                     initial=n_processed(df))
     for group in get_chunks(index, 100):
         [await shadow.process(manifest_uri) for manifest_uri in group[:-1]]
         await shadow.process(group[-1], True)

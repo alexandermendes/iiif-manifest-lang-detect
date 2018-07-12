@@ -1,6 +1,6 @@
 # iiif-manifest-lang-detect
 
-> A script for identifying language codes from OCR data linked to IIIF manifests.
+> A set of scripts for identifying language codes from OCR data linked to IIIF manifests.
 
 Initially written to identify the language codes for British Library
 collection items digitised by Google Books. It is also possible to
@@ -8,13 +8,14 @@ feed in alternative inputs (see below).
 
 ## Overview
 
-A list of IIIF manifest URIs is given as the initial input. For each IIIF
-manifest we iterate over its canvases and check the `seeAlso` key for each.
-URIs to related a documents in the `text/plain` format are returned; these
-should contain our OCR data.
+A list of IIIF manifest URIs is given as the initial input. For each
+manifest we iterate over its canvases and check the `seeAlso` key to identify
+URIs to related a documents in the `text/plain` format; these should contain
+our OCR data. These URIs are added to a `ocr_uris` column in the original
+CSV file.
 
-For each manifest, the OCR URIs identified above are shuffled into a random
-order and batched into groups. The proportional size of each group is
+For each manifest, the OCR URIs identified above are then shuffled into a
+random order and batched into groups. The proportional size of each group is
 determined by the `THRESHOLD` variable. If `THRESHOLD` is set to 20 (as is
 the default) then each batch will be 20% of the total number of OCR pages.
 
@@ -56,7 +57,9 @@ the input. To use an alternative list of IIIF manifest URIs pass the path
 to a CSV file containing those URIs when running the script, like so:
 
 ```
-python run.py /path/to/csv
+python bin/get_ocr_uris.py /path/to/csv
+python bin/get_langs.py /path/to/csv
 ```
 
-The CSV file must contain a column with the header `Manifest-URI`.
+The CSV file must contain a column with the `HEADER` identified in
+[bin/settings.py](bin/settings.py) (default `Manifest-URI`).

@@ -10,32 +10,30 @@ from langdetect import detect_langs, DetectorFactory
 from langdetect.lang_detect_exception import LangDetectException
 from tornado import ioloop, httpclient
 from tornado.gen import multi
-from retrying import retry
+import time
 
-
-THRESHOLD = 20
-CONFIDENCE = 95
-HEADER = 'Manifest-URI'
+import settings
 
 
 def load_dataframe(path):
     """Load a CSV file into a dataframe."""
+    print('Loading dataframe...')
     df = pandas.read_csv(path, dtype=str)
-    if HEADER not in df:
-        raise ValueError('Manifest-URI column not in {}'.format(path))
+    if settings.HEADER not in df:
+        raise ValueError('{0} column not in {1}'.format(settings.HEADER, path))
 
     # Add empty lang column
     if 'lang' not in df:
         df['lang'] = None
 
     # Drop rows with no manifest URI
-    df.dropna(subset=[HEADER], inplace=True)
+    df.dropna(subset=[settings.HEADER], inplace=True)
 
     # Set index and drop duplicates
-    n_dupes = len(df[df.duplicated(subset=HEADER, keep=False)])
+    n_dupes = len(df[df.duplicated(subset=settings.HEADER, keep=False)])
     if n_dupes:
         print('WARNING: {} duplicate manifest URIs found'.format(n_dupes))
-    df.set_index(HEADER, inplace=True, drop=False)
+    df.set_index(settings.HEADER, inplace=True, drop=False)
     return df
 
 
@@ -66,7 +64,7 @@ def detect_language(responses, total):
 
     top = langs[0]
     code = convert_lang_code(top.lang)
-    if top.prob >= CONFIDENCE / float(100):
+    if top.prob >= settings.CONFIDENCE / float(100):
         return convert_lang_code(top.lang)
 
 
@@ -85,7 +83,7 @@ async def check_ocr(ocr_uris, http_client):
     """
     shuffle(ocr_uris)
     total = len(ocr_uris)
-    batch_size = int((float(THRESHOLD) / 100) * total)
+    batch_size = int((float(settings.THRESHOLD) / 100) * total)
     responses = []
     for group in get_chunks(ocr_uris, batch_size):
         responses += await multi([http_client.fetch(uri) for uri in group])
@@ -132,7 +130,9 @@ async def generate_tasks(df, http_client, offset=0):
 
 async def process(manifest_uri, ocr_uris, df, http_client):
     """Check languages for items in the queue and persist."""
+    start = time.time()
     lang_code = await check_ocr(ocr_uris, http_client)
+    print(time.time() - start)
     update_dataframe(manifest_uri, lang_code, df)
 
 
@@ -153,7 +153,7 @@ async def main(offset):
     """Run the script."""
     csv_path = get_csv_path()
     df = load_dataframe(csv_path)
-    pbar = tqdm.tqdm(total=df[HEADER].count(),
+    pbar = tqdm.tqdm(total=df[settings.HEADER].count(),
                      initial=df['lang'].count() if 'lang' in df else 0)
     http_client = httpclient.AsyncHTTPClient()
     DetectorFactory.seed = 0
@@ -161,12 +161,11 @@ async def main(offset):
     async for manifest_uri, ocr_uris in task_gen:
         await process(manifest_uri, ocr_uris, df, http_client)
         pbar.update(1)
-        if pbar.n and pbar.n % 100 == 0:
+        if pbar.n and pbar.n % settings.BATCH_SIZE == 0:
             df.to_csv(csv_path, index=False)
     df.to_csv(csv_path, index=False)
 
 
-@retry
 @click.command()
 @click.option('--offset', default=0)
 def run(offset):

@@ -162,7 +162,8 @@ def count_csv(fn):
     try:
         f = open(fn, 'r')
     except FileNotFoundError:
-        open(fn, 'w')
+        with open(fn, 'w') as f:
+            csv.writer(f).writerow([settings.HEADER, 'lang'])
         return []
     return [row[0] for row in csv.reader(f)]
 

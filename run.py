@@ -35,8 +35,8 @@ def load_dataframe(path):
 
 class Shadow(Actor):
     async def startup(self):
-        success_file = get_csv('success.csv')
-        errors_file = get_csv('errors.csv')
+        success_file = open('success.csv', 'a')
+        errors_file = open('errors.csv', 'a')
         self.success_writer = csv.writer(success_file)
         self.errors_writer = csv.writer(errors_file)
         self.session = ClientSession(loop=self.loop)
@@ -139,12 +139,6 @@ class Shadow(Actor):
             per_s = format(self.n_processed / diff, '.2f')
             print('{0} PROCESSED : {1}/s'.format(self.n_processed, per_s))
 
-    def get_csv(self, fn):
-        """Append to file if it exists, write otherwise."""
-        if os.path.exists(filename):
-            return open(filename, 'a')
-        return open(fn, 'w')
-
     async def shutdown(self):
         self.session.close()
 
@@ -168,6 +162,7 @@ def count_csv(fn):
     try:
         f = open(fn, 'r')
     except FileNotFoundError:
+        open(fn, 'w')
         return []
     return [row[0] for row in csv.reader(f)]
 

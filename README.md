@@ -29,11 +29,12 @@ that a random sample of at least `THRESHOLD` percent of each book is written
 in a particular language. If no language can be established for an item the
 `xx` placeholder is used.
 
-The results are added to a file called `success.csv`. Rows where errors are
-encountered while parsing will be added to the `error.csv` file.
-
 The `THRESHOLD` and `CONFIDENCE` can be modified by updating their values at
 the top of the script.
+
+The results are added to a file called `success.csv` as the manifest URI
+against the language code. Any manifest URIs where errors are were encountered
+while retrieving or parsing will be added to the `error.csv` file.
 
 ## Requirements
 

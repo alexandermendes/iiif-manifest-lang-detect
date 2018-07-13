@@ -74,5 +74,22 @@ The CSV file must contain a column with the `HEADER` identified in
 
 ## Concurrency
 
-To speed things up run multiple workers by calling `arq run.py` from seperate
-terminals.
+
+If you have multiple cores available you should be able to speed things up
+by running multiple workers. Below is an example
+[supervisor](http://supervisord.org/) config that spawns four processes.
+
+```
+[program:arq-worker]
+command=arq run.py
+directory=/iiif-manifest-lang-detect
+autostart=true
+autorestart=true
+priority=997
+log_stdout=true
+log_stderr=true
+process_name=%(program_name)s_%(process_num)02d
+numprocs=4
+stopasgroup=true
+stopsignal=KILL
+```

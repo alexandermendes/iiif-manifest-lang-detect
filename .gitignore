@@ -1,6 +1,5 @@
 env/*
 *.pyc
 .vscode/
-success.csv
 errors.csv
 out.csv

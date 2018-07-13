@@ -35,8 +35,8 @@ def load_dataframe(path):
 
 class Shadow(Actor):
     async def startup(self):
-        success_file = open('success.csv', 'a')
-        errors_file = open('errors.csv', 'a')
+        success_file = get_csv('success.csv')
+        errors_file = get_csv('errors.csv')
         self.success_writer = csv.writer(success_file)
         self.errors_writer = csv.writer(errors_file)
         self.session = ClientSession(loop=self.loop)
@@ -44,11 +44,13 @@ class Shadow(Actor):
         self.start_time = time.time()
 
     async def fetch(self, url, session):
+        """Fetch a response."""
         async with session.get(url) as response:
             return await response.read()
 
     @concurrent
     async def process(self, manifest_uri):
+        """Process a manifest."""
         async with self.session.get(manifest_uri) as response:
             content = await response.read()
             try:
@@ -57,16 +59,18 @@ class Shadow(Actor):
                 self.errors_writer.writerow([manifest_uri])
                 self.report()
                 return
-        lang_code = await self.process_manifest(manifest_uri, manifest)
+        lang_code = await self.get_lang_code(manifest_uri, manifest)
         self.success_writer.writerow([manifest_uri, lang_code])
         self.report()
 
-    async def process_manifest(self, manifest_uri, manifest):
+    async def get_lang_code(self, manifest_uri, manifest):
+        """Get a lang code for a manifest."""
         ocr_uris = self.get_ocr_uris(manifest)
         lang_code = await self.check_ocr(ocr_uris)
         return lang_code
 
     async def download_ocr(self, ocr_uris):
+        """Download a set of OCR data."""
         tasks = []
         for uri in ocr_uris:
             task = asyncio.ensure_future(self.fetch(uri, self.session))
@@ -127,12 +131,19 @@ class Shadow(Actor):
             return top.lang
 
     def report(self):
+        """Report progress."""
         self.n_processed += 1
         if self.n_processed % 100 == 0:
             now = time.time()
             diff = now - self.start_time
             per_s = format(self.n_processed / diff, '.2f')
             print('{0} PROCESSED : {1}/s'.format(self.n_processed, per_s))
+
+    def get_csv(self, fn):
+        """Append to file if it exists, write otherwise."""
+        if os.path.exists(filename):
+            return open(filename, 'a')
+        return open(fn, 'w')
 
     async def shutdown(self):
         self.session.close()

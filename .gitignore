@@ -3,3 +3,4 @@ env/*
 .vscode/
 errors.csv
 out.csv
+success.csv

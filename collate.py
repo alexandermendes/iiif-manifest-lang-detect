@@ -26,7 +26,7 @@ def run(path):
     main_df['lang'] = main_df[settings.HEADER].apply(lookup_lang,
                                                      args=(lang_df,))
     main_df = main_df[pandas.notnull(main_df['lang'])]
-    main_df.to_csv('out.csv')
+    main_df.to_csv('out.csv', index=False)
 
 
 if __name__ == "__main__":

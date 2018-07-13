@@ -15,13 +15,6 @@ from arq import Actor, BaseWorker, concurrent
 import settings
 
 
-def get_csv_path():
-    path = './data/bl-gbooks.csv'
-    if len(sys.argv) > 2:
-        path = sys.argv[1]
-    return path
-
-
 def load_dataframe(path):
     """Load a CSV file into a dataframe."""
     print('Loading dataframe...')
@@ -42,19 +35,10 @@ def load_dataframe(path):
 
 class Shadow(Actor):
     async def startup(self):
-        csv_path = get_csv_path()
-        df = load_dataframe(csv_path)
-        fieldnames = df.columns.tolist()
-        fieldnames.append('lang')
-        fieldnames = list(set(fieldnames))
         success_file = open('success.csv', 'a')
         errors_file = open('errors.csv', 'a')
-        self.success_writer = csv.DictWriter(success_file,
-                                             fieldnames=fieldnames)
-        self.errors_writer = csv.DictWriter(errors_file,
-                                            fieldnames=fieldnames)
-        self.success_writer.writeheader()
-        self.errors_writer.writeheader()
+        self.success_writer = csv.writer(success_file)
+        self.errors_writer = csv.writer(errors_file)
         self.session = ClientSession(loop=self.loop)
         self.n_processed = 0
         self.start_time = time.time()
@@ -64,18 +48,17 @@ class Shadow(Actor):
             return await response.read()
 
     @concurrent
-    async def process(self, manifest_uri, row):
+    async def process(self, manifest_uri):
         async with self.session.get(manifest_uri) as response:
             content = await response.read()
             try:
                 manifest = json.loads(content.decode('utf-8'))
             except Exception as e:
-                self.errors_writer.writerow(row)
+                self.errors_writer.writerow([manifest_uri])
                 self.report()
                 return
         lang_code = await self.process_manifest(manifest_uri, manifest)
-        row['lang'] = lang_code
-        self.success_writer.writerow(row)
+        self.success_writer.writerow([manifest_uri, lang_code])
         self.report()
 
     async def process_manifest(self, manifest_uri, manifest):
@@ -161,33 +144,39 @@ class Worker(BaseWorker):
     shadows = [Shadow]
 
 
-def init_csv(fn, fieldnames):
-    """Initialise a CSV file and return a list of all values under HEADER."""
+def get_csv_path():
+    path = './data/bl-gbooks.csv'
+    if len(sys.argv) > 2:
+        path = sys.argv[1]
+    return path
+
+
+
+def count_csv(fn):
+    """List items in first column of a CSV file."""
     try:
         f = open(fn, 'r')
     except FileNotFoundError:
         return []
-    reader = csv.DictReader(f)
-    return [row[settings.HEADER] for row in reader]
+    return [row[0] for row in csv.reader(f)]
 
 
-async def run():
+async def run(path):
     """Run the script."""
-    csv_path = get_csv_path()
-    df = load_dataframe(csv_path)
-    fieldnames = df.columns.tolist()
+    df = load_dataframe(path)
     shadow = Shadow()
-    success = init_csv('success.csv', fieldnames)
-    errors = init_csv('errors.csv', fieldnames)
+    success = count_csv('success.csv')
+    errors = count_csv('errors.csv')
     unchecked = [uri for uri in df.index if uri not in success + errors]
     for manifest_uri in tqdm.tqdm(unchecked):
-        row = df.loc[manifest_uri].to_dict()
-        await shadow.process(manifest_uri, row)
+        await shadow.process(manifest_uri)
     await shadow.close()
 
 
 if __name__ == '__main__':
+    path = './data/bl-gbooks.csv'
+    if len(sys.argv) > 2:
+        path = sys.argv[1]
+
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(run())
-
-
+    loop.run_until_complete(run(path))

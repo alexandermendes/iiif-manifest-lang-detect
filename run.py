@@ -174,8 +174,9 @@ async def run(path):
     shadow = Shadow()
     success = count_csv('success.csv')
     errors = count_csv('errors.csv')
-    unchecked = [uri for uri in df.index if uri not in success + errors]
-    for manifest_uri in tqdm.tqdm(unchecked):
+    checked = success + errors
+    df.drop(checked, inplace=True)
+    for manifest_uri in tqdm.tqdm(df.index):
         await shadow.process(manifest_uri)
     await shadow.close()
 

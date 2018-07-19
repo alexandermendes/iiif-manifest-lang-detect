@@ -19,10 +19,13 @@ def lookup_lang(manifest_uri, lang_df):
 @click.command()
 @click.option('--path', default='./data/bl-gbooks.csv', help='Path to CSV.')
 def run(path):
+    print('This might take a while...')
     main_df = pandas.read_csv(path, dtype=str)
     lang_df = pandas.read_csv('success.csv', dtype=str)
     main_df.set_index(settings.HEADER, inplace=True, drop=False)
-    lang_df.set_index(settings.HEADER, inplace=True, drop=False)
+    lang_df.drop_duplicates(subset=[settings.HEADER], inplace=True)
+    lang_df.set_index(settings.HEADER, inplace=True, drop=False,
+                      verify_integrity=True)
     main_df['lang'] = main_df[settings.HEADER].apply(lookup_lang,
                                                      args=(lang_df,))
     main_df = main_df[pandas.notnull(main_df['lang'])]

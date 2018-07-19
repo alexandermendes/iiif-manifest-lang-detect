@@ -58,10 +58,11 @@ class Shadow(Actor):
             except Exception as e:
                 self.errors_writer.writerow([manifest_uri])
                 self.report()
-                return
+                return False
         lang_code = await self.get_lang_code(manifest_uri, manifest)
         self.success_writer.writerow([manifest_uri, lang_code])
         self.report()
+        return True
 
     async def get_lang_code(self, manifest_uri, manifest):
         """Get a lang code for a manifest."""

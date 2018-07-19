@@ -165,7 +165,7 @@ def count_csv(fn):
         with open(fn, 'w') as f:
             csv.writer(f).writerow([settings.HEADER, 'lang'])
         return []
-    return [row[0] for row in csv.reader(f)]
+    return [row[0] for row in csv.reader(f)][1:]
 
 
 async def run(path):
